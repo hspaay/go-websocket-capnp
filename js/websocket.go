@@ -5,6 +5,7 @@ package js
 import (
 	"context"
 	"syscall/js"
+	"time"
 
 	"capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/exp/spsc"
@@ -32,11 +33,20 @@ func (e websocketError) Error() string {
 	return "Websocket Error: " + e.event.Get("type").String()
 }
 
-func New(url string, subprotocols []string) *Conn {
+// New creates a new websocket client, optionally with subprotocols or TLS options
+//
+//	url to connect to, eg "wss://host:port/path"
+//	subprotocols. undocumented stuff (https://github.com/websockets/ws/blob/master/doc/ws.md#new-websocketserveroptions-callback)
+//	tlsOpts: TLS options  "ca", "cert", "key"
+func New(url string, subprotocols []string, tlsOpts map[string]interface{}) *Conn {
 	websocketCls := js.Global().Get("WebSocket")
 	var value js.Value
 	if subprotocols == nil {
-		value = websocketCls.New(url)
+		if tlsOpts != nil {
+			value = websocketCls.New(url, js.ValueOf(tlsOpts))
+		} else {
+			value = websocketCls.New(url)
+		}
 	} else {
 		var jsProtos []any
 		for _, p := range subprotocols {
@@ -105,6 +115,17 @@ func (c *Conn) Decode() (*capnp.Message, error) {
 func (c *Conn) Close() error {
 	c.value.Call("close")
 	return nil
+}
+
+// Obtain the connection error, if any
+func (c *Conn) Error() error {
+	return c.err
+}
+
+// WaitForConnection waits for the connection to be established or fail
+func (c *Conn) WaitForConnection(timeout time.Duration) error {
+	<-c.ready
+	return c.err
 }
 
 func (c *Conn) ReleaseMessage(*capnp.Message) {
